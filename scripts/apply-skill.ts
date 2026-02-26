@@ -1,5 +1,6 @@
 import { applySkill } from '../skills-engine/apply.js';
 import { initNanoclawDir } from '../skills-engine/init.js';
+import { requirePassword } from './verify-password.js';
 
 const args = process.argv.slice(2);
 
@@ -9,6 +10,9 @@ if (args.includes('--init')) {
   console.log(JSON.stringify({ success: true, action: 'init' }));
   process.exit(0);
 }
+
+// Require password for all other operations
+await requirePassword();
 
 const skillDir = args[0];
 if (!skillDir) {

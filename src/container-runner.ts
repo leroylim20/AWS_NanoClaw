@@ -202,9 +202,28 @@ function buildVolumeMounts(
 /**
  * Read allowed secrets from .env for passing to the container via stdin.
  * Secrets are never written to disk or mounted as files.
+ *
+ * SECURITY: Only Bedrock authentication is allowed. All other authentication
+ * methods (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN) are blocked.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  // Read Bedrock configuration from .env
+  const bedrockConfig = readEnvFile(['AWS_REGION', 'BEDROCK_MODEL_ID']);
+
+  // AWS credentials come from EC2 instance role, ECS task role, or ~/.aws/credentials
+  // They are already in process.env and will be inherited by the container
+  const awsCredentials: Record<string, string> = {};
+  if (process.env.AWS_ACCESS_KEY_ID) {
+    awsCredentials.AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
+  }
+  if (process.env.AWS_SECRET_ACCESS_KEY) {
+    awsCredentials.AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+  }
+  if (process.env.AWS_SESSION_TOKEN) {
+    awsCredentials.AWS_SESSION_TOKEN = process.env.AWS_SESSION_TOKEN;
+  }
+
+  return { ...bedrockConfig, ...awsCredentials };
 }
 
 function buildContainerArgs(
