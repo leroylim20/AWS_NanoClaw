@@ -72,26 +72,48 @@ describe('registered groups DB query', () => {
   });
 });
 
-describe('credentials detection', () => {
-  it('detects ANTHROPIC_API_KEY in env content', () => {
+describe('credentials detection (Bedrock only)', () => {
+  it('detects Bedrock configuration when both AWS_REGION and BEDROCK_MODEL_ID present', () => {
     const content =
-      'SOME_KEY=value\nANTHROPIC_API_KEY=sk-ant-test123\nOTHER=foo';
+      'AWS_REGION=us-east-1\nBEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0\nOTHER=foo';
     const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
     expect(hasCredentials).toBe(true);
   });
 
-  it('detects CLAUDE_CODE_OAUTH_TOKEN in env content', () => {
-    const content = 'CLAUDE_CODE_OAUTH_TOKEN=token123';
+  it('returns false when only AWS_REGION is present', () => {
+    const content = 'AWS_REGION=us-east-1\nOTHER=foo';
     const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
-    expect(hasCredentials).toBe(true);
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
+    expect(hasCredentials).toBe(false);
   });
 
-  it('returns false when no credentials', () => {
+  it('returns false when only BEDROCK_MODEL_ID is present', () => {
+    const content =
+      'BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+    const hasCredentials =
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
+    expect(hasCredentials).toBe(false);
+  });
+
+  it('returns false when neither credential is present', () => {
     const content = 'ASSISTANT_NAME="Andy"\nOTHER=foo';
     const hasCredentials =
-      /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(content);
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
+    expect(hasCredentials).toBe(false);
+  });
+
+  it('rejects old authentication methods (ANTHROPIC_API_KEY)', () => {
+    const content = 'ANTHROPIC_API_KEY=sk-ant-test123';
+    const hasCredentials =
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
+    expect(hasCredentials).toBe(false);
+  });
+
+  it('rejects old authentication methods (CLAUDE_CODE_OAUTH_TOKEN)', () => {
+    const content = 'CLAUDE_CODE_OAUTH_TOKEN=token123';
+    const hasCredentials =
+      /^AWS_REGION=/m.test(content) && /^BEDROCK_MODEL_ID=/m.test(content);
     expect(hasCredentials).toBe(false);
   });
 });
