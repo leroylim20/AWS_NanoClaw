@@ -200,18 +200,46 @@ function buildVolumeMounts(
 }
 
 /**
- * Fetch AWS credentials from EC2 instance metadata service.
+ * Fetch AWS credentials from EC2 instance metadata service (IMDSv2).
  * Returns credentials if running on EC2 with an IAM role, otherwise returns empty object.
  */
 async function fetchEC2Credentials(): Promise<Record<string, string>> {
   try {
     const http = await import('http');
 
+    // Get IMDSv2 token
+    const token = await new Promise<string>((resolve, reject) => {
+      const req = http.request(
+        'http://169.254.169.254/latest/api/token',
+        {
+          method: 'PUT',
+          timeout: 1000,
+          headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(data));
+        },
+      );
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Metadata token timeout'));
+      });
+      req.end();
+    });
+
+    if (!token) return {};
+
     // Get the IAM role name
     const roleName = await new Promise<string>((resolve, reject) => {
       const req = http.request(
         'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
-        { timeout: 1000 },
+        {
+          timeout: 1000,
+          headers: { 'X-aws-ec2-metadata-token': token },
+        },
         (res) => {
           let data = '';
           res.on('data', (chunk) => (data += chunk));
@@ -232,7 +260,10 @@ async function fetchEC2Credentials(): Promise<Record<string, string>> {
     const creds = await new Promise<any>((resolve, reject) => {
       const req = http.request(
         `http://169.254.169.254/latest/meta-data/iam/security-credentials/${roleName}`,
-        { timeout: 1000 },
+        {
+          timeout: 1000,
+          headers: { 'X-aws-ec2-metadata-token': token },
+        },
         (res) => {
           let data = '';
           res.on('data', (chunk) => (data += chunk));
@@ -368,6 +399,16 @@ export async function runContainerAgent(
 
   // Fetch secrets before spawning container
   const secrets = await readSecrets();
+  logger.debug(
+    {
+      hasAwsAccessKey: !!secrets.AWS_ACCESS_KEY_ID,
+      hasAwsSecretKey: !!secrets.AWS_SECRET_ACCESS_KEY,
+      hasAwsSessionToken: !!secrets.AWS_SESSION_TOKEN,
+      hasBedrockModel: !!secrets.BEDROCK_MODEL_ID,
+      hasAwsRegion: !!secrets.AWS_REGION,
+    },
+    'Fetched secrets for container',
+  );
 
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
