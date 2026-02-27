@@ -200,19 +200,79 @@ function buildVolumeMounts(
 }
 
 /**
+ * Fetch AWS credentials from EC2 instance metadata service.
+ * Returns credentials if running on EC2 with an IAM role, otherwise returns empty object.
+ */
+async function fetchEC2Credentials(): Promise<Record<string, string>> {
+  try {
+    const http = await import('http');
+
+    // Get the IAM role name
+    const roleName = await new Promise<string>((resolve, reject) => {
+      const req = http.request(
+        'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+        { timeout: 1000 },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(data.trim()));
+        },
+      );
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Metadata service timeout'));
+      });
+      req.end();
+    });
+
+    if (!roleName) return {};
+
+    // Fetch credentials for the role
+    const creds = await new Promise<any>((resolve, reject) => {
+      const req = http.request(
+        `http://169.254.169.254/latest/meta-data/iam/security-credentials/${roleName}`,
+        { timeout: 1000 },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        },
+      );
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Metadata service timeout'));
+      });
+      req.end();
+    });
+
+    return {
+      AWS_ACCESS_KEY_ID: creds.AccessKeyId,
+      AWS_SECRET_ACCESS_KEY: creds.SecretAccessKey,
+      AWS_SESSION_TOKEN: creds.Token,
+    };
+  } catch (err) {
+    // Not on EC2 or metadata service unavailable
+    return {};
+  }
+}
+
+/**
  * Read allowed secrets from .env for passing to the container via stdin.
  * Secrets are never written to disk or mounted as files.
  *
  * SECURITY: Only Bedrock authentication is allowed. All other authentication
  * methods (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN) are blocked.
  */
-function readSecrets(): Record<string, string> {
+async function readSecrets(): Promise<Record<string, string>> {
   // Read Bedrock configuration from .env
   const bedrockConfig = readEnvFile(['AWS_REGION', 'BEDROCK_MODEL_ID']);
 
   // AWS credentials come from EC2 instance role, ECS task role, or ~/.aws/credentials
-  // They are already in process.env and will be inherited by the container
   const awsCredentials: Record<string, string> = {};
+
+  // First check process.env (for explicit credentials or ECS task role)
   if (process.env.AWS_ACCESS_KEY_ID) {
     awsCredentials.AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
   }
@@ -221,6 +281,12 @@ function readSecrets(): Record<string, string> {
   }
   if (process.env.AWS_SESSION_TOKEN) {
     awsCredentials.AWS_SESSION_TOKEN = process.env.AWS_SESSION_TOKEN;
+  }
+
+  // If no explicit credentials, try EC2 instance metadata
+  if (!awsCredentials.AWS_ACCESS_KEY_ID) {
+    const ec2Creds = await fetchEC2Credentials();
+    Object.assign(awsCredentials, ec2Creds);
   }
 
   return { ...bedrockConfig, ...awsCredentials };
@@ -300,6 +366,9 @@ export async function runContainerAgent(
   const logsDir = path.join(groupDir, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
+  // Fetch secrets before spawning container
+  const secrets = await readSecrets();
+
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -313,7 +382,7 @@ export async function runContainerAgent(
     let stderrTruncated = false;
 
     // Pass secrets via stdin (never written to disk or mounted as files)
-    input.secrets = readSecrets();
+    input.secrets = secrets;
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
     // Remove secrets from input so they don't appear in logs
