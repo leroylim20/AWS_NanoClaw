@@ -13,7 +13,7 @@ export async function verifyPassword(password: string): Promise<boolean> {
 
     // Retrieve the secret
     const response = await client.send(
-      new GetSecretValueCommand({ SecretId: SECRET_NAME })
+      new GetSecretValueCommand({ SecretId: SECRET_NAME }),
     );
 
     if (!response.SecretString) {

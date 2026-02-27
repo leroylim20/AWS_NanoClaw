@@ -25,7 +25,7 @@ async function setupPassword(password: string) {
       new UpdateSecretCommand({
         SecretId: SECRET_NAME,
         SecretString: JSON.stringify({ passwordHash: hash }),
-      })
+      }),
     );
     console.log('Password hash updated in AWS Secrets Manager');
   } catch (error: any) {
@@ -36,7 +36,7 @@ async function setupPassword(password: string) {
           Name: SECRET_NAME,
           Description: 'Password hash for NanoClaw skills system protection',
           SecretString: JSON.stringify({ passwordHash: hash }),
-        })
+        }),
       );
       console.log('Password hash created in AWS Secrets Manager');
     } else {

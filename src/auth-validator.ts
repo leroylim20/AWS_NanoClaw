@@ -9,10 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from './logger.js';
 
-const BLOCKED_AUTH_METHODS = [
-  'ANTHROPIC_API_KEY',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-];
+const BLOCKED_AUTH_METHODS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 /**
  * Validates that only Bedrock authentication is configured.
